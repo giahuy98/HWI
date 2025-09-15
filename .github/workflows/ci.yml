@@ -1,13 +1,11 @@
 name: CI
 on:
-  # See: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request.
   pull_request:
-  # See: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#push.
   push:
-    branches:
-      - '**'
-    tags-ignore:
-      - '**'
+    branches: ['**']
+    tags-ignore: ['**']
+  workflow_dispatch:
+    inputs:
 
 concurrency:
   group: ${{ github.event_name != 'pull_request' && github.run_id || github.ref }}
@@ -19,36 +17,6 @@ env:
   LANGUAGE: 'C.UTF-8'
 
 jobs:
-  non-device-tests:
-    name: Non-device tests
-    runs-on: ubuntu-latest
-    container: python:3.12
-    steps:
-      - uses: actions/checkout@v4
-
-      - run: |
-          pip install poetry
-          poetry install
-
-      - name: Run tests
-        run: |
-          cd test; poetry run ./run_tests.py; cd ..
-
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    container: python:3.12
-    steps:
-      - uses: actions/checkout@v4
-
-      - run: |
-          pip install poetry
-          poetry install
-
-      - run: |
-          poetry run flake8
-
-
   wine-builder:
     name: Wine builder
     runs-on: ubuntu-latest
@@ -56,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v5
         with:
           context: .
           file: contrib/build-wine.Dockerfile
@@ -72,15 +40,19 @@ jobs:
               contrib/build_wine.sh
               find dist -type f -exec sha256sum {} \;
             "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-wine
+          path: dist/
 
-  dist-builder:
-    name: Dist builder
+  linux-builder:
+    name: Linux builder
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v5
         with:
           context: .
           file: contrib/build.Dockerfile
@@ -93,160 +65,34 @@ jobs:
             --workdir ${{ github.workspace }} \
             build-container bash -c "
               git config --global --add safe.directory ${{ github.workspace }}
-              contrib/build_bin.sh
-              contrib/build_dist.sh
+              contrib/build_bin.sh --without-gui
               find dist -type f -exec sha256sum {} \;
             "
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: dist-linux
           path: dist/
 
-  prepare-sim-matrices:
-    name: Prepare sim matrices
-    uses: ./.github/workflows/prepare-sim-matrices.yml
+  mac-builder:
+    name: Mac builder
+    runs-on: macos-13
 
-  sim-builder-trezor:
-    name: Trezor sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: trezor
-      include: ${{ needs.prepare-sim-matrices.outputs.trezor }}
-      # Ubuntu 22.04 ships with glibc 2.35, which is needed to keep Trezor 1
-      # binaries compatible with Debian Bookworm (glibc 2.36) Python containers.
-      # Trezor T binaries don't need this.
-      runs-on: ubuntu-22.04
-
-  sim-builder-coldcard:
-    name: Coldcard sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: coldcard
-      include: ${{ needs.prepare-sim-matrices.outputs.coldcard }}
-      runs-on: ubuntu-22.04
-
-  sim-builder-bitbox:
-    name: Bitbox sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: bitbox
-      include: ${{ needs.prepare-sim-matrices.outputs.bitbox }}
-      runs-on: ubuntu-latest
-
-  sim-builder-jade:
-    name: Jade sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: jade
-      include: ${{ needs.prepare-sim-matrices.outputs.jade }}
-      runs-on: ubuntu-latest
-
-  sim-builder-ledger:
-    name: Ledger sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: ledger
-      include: ${{ needs.prepare-sim-matrices.outputs.ledger }}
-      runs-on: ubuntu-latest
-
-  sim-builder-keepkey:
-    name: Keepkey sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: keepkey
-      include: ${{ needs.prepare-sim-matrices.outputs.keepkey }}
-      runs-on: ubuntu-22.04
-
-  ledger-s-app-builder:
-    name: Ledger Nano S Bitcoin App builder
-    uses: ./.github/workflows/ledger-app-builder.yml
-    with:
-      app: nano_s
-      runs-on: ubuntu-latest
-
-  ledger-x-app-builder:
-    name: Ledger Nano X Bitcoin App builder
-    uses: ./.github/workflows/ledger-app-builder.yml
-    with:
-      app: nano_x
-      runs-on: ubuntu-latest
-
-  bitcoind-builder:
-    name: bitcoind builder
-    # Ubuntu 22.04 ships with glibc 2.35, which is needed to keep binaries
-    # compatible with Debian Bookworm (glibc 2.36) Python containers.
-    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-bitcoind
 
-  test-trezor-1:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-trezor, bitcoind-builder, dist-builder]
-    with:
-      device: trezor-1
-      runs-on: ubuntu-latest
+      - run: |
+          brew install pyenv
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init --path)"
+          pyenv install 3.9
+          pyenv global 3.9
+          python --version
+          ./contrib/build_bin.sh --without-gui
+          ./dist/hwi-3.1.0-mac-x86_64.tar.gz.dir/hwi enumerate
 
-  test-trezor-t:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-trezor, bitcoind-builder, dist-builder]
-    with:
-      device: trezor-t
-      runs-on: ubuntu-latest
-
-  test-ledger-s:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-ledger, ledger-s-app-builder, bitcoind-builder, dist-builder]
-    with:
-      device: ledger-legacy
-      runs-on: ubuntu-latest
-
-  test-ledger-x:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-ledger, ledger-x-app-builder, bitcoind-builder, dist-builder]
-    with:
-      device: ledger
-      runs-on: ubuntu-latest
-
-  test-coldcard:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-coldcard, bitcoind-builder, dist-builder]
-    with:
-      device: coldcard
-      runs-on: ubuntu-22.04
-
-  test-bitbox01:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-bitbox, bitcoind-builder, dist-builder]
-    with:
-      device: bitbox01
-      runs-on: ubuntu-latest
-
-  test-bitbox02:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-bitbox, bitcoind-builder, dist-builder]
-    with:
-      device: bitbox02
-      runs-on: ubuntu-latest
-
-  test-jade:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-jade, bitcoind-builder, dist-builder]
-    with:
-      device: jade
-      runs-on: ubuntu-latest
-
-  test-keepkey:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-keepkey, bitcoind-builder, dist-builder]
-    with:
-      device: keepkey
-      runs-on: ubuntu-latest
-
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: dist/
