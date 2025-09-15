@@ -94,12 +94,14 @@ def signmessage_handler(args: argparse.Namespace, client: HardwareWalletClient) 
     return signmessage(client, message=args.message, path=args.path)
 
 def signtx_handler(args: argparse.Namespace, client: HardwareWalletClient) -> Dict[str, Union[bool, str]]:
-    policy = BIP388Policy(
-        name=args.policy_name,
-        descriptor_template=args.policy_desc,
-        keys_info=args.key,
-        hmac=args.hmac
-    )
+    policy = None
+    if args.policy_name is not None and args.policy_desc is not None and args.key is not None and args.hmac is not None:
+        policy = BIP388Policy(
+            name=args.policy_name,
+            descriptor_template=args.policy_desc,
+            keys_info=args.key,
+            hmac=args.hmac
+        )
     return signtx(client, psbt=args.psbt, bip388_policy=policy)
 
 def wipe_device_handler(args: argparse.Namespace, client: HardwareWalletClient) -> Dict[str, bool]:
