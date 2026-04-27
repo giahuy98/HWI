@@ -1,0 +1,126 @@
+name: CI macOS 15 Intel
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag/name to create
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  LC_ALL: 'C.UTF-8'
+  LANG: 'C.UTF-8'
+  LANGUAGE: 'C.UTF-8'
+
+jobs:
+  wine-builder:
+    name: Wine builder
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: contrib/build-wine.Dockerfile
+          tags: build-wine-container
+          load: true
+
+      - run: >
+          docker run --rm \
+            --volume ${{ github.workspace }}:${{ github.workspace }} \
+            --workdir ${{ github.workspace }} \
+            build-wine-container bash -c "
+              git config --global --add safe.directory ${{ github.workspace }}
+              contrib/build_wine.sh
+              find dist -type f -exec sha256sum {} \;
+            "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-wine
+          path: dist/
+
+  linux-builder:
+    name: Linux builder
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: contrib/build.Dockerfile
+          tags: build-container
+          load: true
+
+      - run: >
+          docker run --rm \
+            --volume ${{ github.workspace }}:${{ github.workspace }} \
+            --workdir ${{ github.workspace }} \
+            build-container bash -c "
+              git config --global --add safe.directory ${{ github.workspace }}
+              contrib/build_bin.sh --without-gui
+              find dist -type f -exec sha256sum {} \;
+            "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/
+
+  mac-builder:
+    name: Mac builder
+    runs-on: macos-15-intel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: |
+          brew install pyenv
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init --path)"
+          pyenv install 3.9
+          pyenv global 3.9
+          python --version
+          ./contrib/build_bin.sh --without-gui
+          ./dist/hwi-*-mac-x86_64.tar.gz.dir/hwi enumerate
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: dist/
+
+  release:
+    name: Release
+    needs: [wine-builder, linux-builder, mac-builder]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Show release assets
+        run: |
+          find release-assets -maxdepth 1 -type f -print -exec sha256sum {} \;
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/hwi-*-linux-x86_64.tar.gz
+            release-assets/hwi-*-mac-x86_64.tar.gz
+            release-assets/hwi-*-windows-x86_64.zip
