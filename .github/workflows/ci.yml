@@ -1,13 +1,14 @@
 name: CI
 on:
-  # See: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request.
   pull_request:
-  # See: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#push.
   push:
-    branches:
-      - '**'
-    tags-ignore:
-      - '**'
+    branches: ['**']
+    tags: ['*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag/name to create
+        required: true
 
 concurrency:
   group: ${{ github.event_name != 'pull_request' && github.run_id || github.ref }}
@@ -19,36 +20,6 @@ env:
   LANGUAGE: 'C.UTF-8'
 
 jobs:
-  non-device-tests:
-    name: Non-device tests
-    runs-on: ubuntu-latest
-    container: python:3.12
-    steps:
-      - uses: actions/checkout@v4
-
-      - run: |
-          pip install poetry
-          poetry install
-
-      - name: Run tests
-        run: |
-          cd test; poetry run ./run_tests.py; cd ..
-
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    container: python:3.12
-    steps:
-      - uses: actions/checkout@v4
-
-      - run: |
-          pip install poetry
-          poetry install
-
-      - run: |
-          poetry run flake8
-
-
   wine-builder:
     name: Wine builder
     runs-on: ubuntu-latest
@@ -56,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v5
         with:
           context: .
           file: contrib/build-wine.Dockerfile
@@ -72,15 +43,19 @@ jobs:
               contrib/build_wine.sh
               find dist -type f -exec sha256sum {} \;
             "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-wine
+          path: dist/
 
-  dist-builder:
-    name: Dist builder
+  linux-builder:
+    name: Linux builder
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v5
         with:
           context: .
           file: contrib/build.Dockerfile
@@ -93,153 +68,64 @@ jobs:
             --workdir ${{ github.workspace }} \
             build-container bash -c "
               git config --global --add safe.directory ${{ github.workspace }}
-              contrib/build_bin.sh
-              contrib/build_dist.sh
+              contrib/build_bin.sh --without-gui
               find dist -type f -exec sha256sum {} \;
             "
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: dist-linux
           path: dist/
 
-  prepare-sim-matrices:
-    name: Prepare sim matrices
-    uses: ./.github/workflows/prepare-sim-matrices.yml
+  mac-builder:
+    name: Mac builder
+    runs-on: macos-13
 
-  sim-builder-trezor:
-    name: Trezor sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: trezor
-      include: ${{ needs.prepare-sim-matrices.outputs.trezor }}
-      runs-on: ubuntu-latest
-
-  sim-builder-coldcard:
-    name: Coldcard sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: coldcard
-      include: ${{ needs.prepare-sim-matrices.outputs.coldcard }}
-      runs-on: ubuntu-latest
-
-  sim-builder-bitbox:
-    name: Bitbox sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: bitbox
-      include: ${{ needs.prepare-sim-matrices.outputs.bitbox }}
-      runs-on: ubuntu-latest
-
-  sim-builder-jade:
-    name: Jade sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: jade
-      include: ${{ needs.prepare-sim-matrices.outputs.jade }}
-      runs-on: ubuntu-latest
-
-  sim-builder-ledger:
-    name: Ledger sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: ledger
-      include: ${{ needs.prepare-sim-matrices.outputs.ledger }}
-      runs-on: ubuntu-latest
-
-  sim-builder-keepkey:
-    name: Keepkey sim builder
-    needs: prepare-sim-matrices
-    uses: ./.github/workflows/sim-builder.yml
-    with:
-      sim: keepkey
-      include: ${{ needs.prepare-sim-matrices.outputs.keepkey }}
-      runs-on: ubuntu-latest
-
-  ledger-legacy-app-builder:
-    name: Ledger Bitcoin Legacy App builder
-    uses: ./.github/workflows/ledger-legacy-app-builder.yml
-    with:
-      runs-on: ubuntu-latest
-
-  ledger-app-builder:
-    name: Ledger Bitcoin App builder
-    uses: ./.github/workflows/ledger-app-builder.yml
-    with:
-      runs-on: ubuntu-latest
-
-  bitcoind-builder:
-    name: bitcoind builder
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-bitcoind
 
-  test-trezor-1:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-trezor, bitcoind-builder, dist-builder]
-    with:
-      device: trezor-1
-      runs-on: ubuntu-latest
+      - run: |
+          brew install pyenv
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init --path)"
+          pyenv install 3.9
+          pyenv global 3.9
+          python --version
+          ./contrib/build_bin.sh --without-gui
+          ./dist/hwi-*-mac-x86_64.tar.gz.dir/hwi enumerate
 
-  test-trezor-t:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-trezor, bitcoind-builder, dist-builder]
-    with:
-      device: trezor-t
-      runs-on: ubuntu-latest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: dist/
 
-  test-ledger-legacy:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-ledger, ledger-legacy-app-builder, bitcoind-builder, dist-builder]
-    with:
-      device: ledger-legacy
-      runs-on: ubuntu-latest
+  release:
+    name: Release
+    needs: [wine-builder, linux-builder, mac-builder]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
-  test-ledger:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-ledger, ledger-app-builder, bitcoind-builder, dist-builder]
-    with:
-      device: ledger
-      runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: release-assets
+          merge-multiple: true
 
-  test-coldcard:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-coldcard, bitcoind-builder, dist-builder]
-    with:
-      device: coldcard
-      runs-on: ubuntu-latest
+      - name: Show release assets
+        run: |
+          find release-assets -maxdepth 1 -type f -print -exec sha256sum {} \;
 
-  test-bitbox01:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-bitbox, bitcoind-builder, dist-builder]
-    with:
-      device: bitbox01
-      runs-on: ubuntu-latest
-
-  test-bitbox02:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-bitbox, bitcoind-builder, dist-builder]
-    with:
-      device: bitbox02
-      runs-on: ubuntu-latest
-
-  test-jade:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-jade, bitcoind-builder, dist-builder]
-    with:
-      device: jade
-      runs-on: ubuntu-latest
-
-  test-keepkey:
-    uses: ./.github/workflows/device-test.yml
-    needs: [sim-builder-keepkey, bitcoind-builder, dist-builder]
-    with:
-      device: keepkey
-      runs-on: ubuntu-latest
-
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/hwi-*-linux-x86_64.tar.gz
+            release-assets/hwi-*-mac-x86_64.tar.gz
+            release-assets/hwi-*-windows-x86_64.zip
