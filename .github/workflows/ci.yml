@@ -51,9 +51,8 @@ jobs:
           test -n "$zipfile"
           zipdir="${zipfile}.dir"
           test -f "$zipdir/hwi.exe"
-          rm -f "$zipfile"
-          (cd "$zipdir" && zip "../$(basename "$zipfile")" hwi.exe)
-          cp "$zipfile" release-dist/
+          staged_zip="$PWD/release-dist/$(basename "$zipfile")"
+          (cd "$zipdir" && zip "$staged_zip" hwi.exe)
           unzip -l release-dist/*.zip
 
       - uses: actions/upload-artifact@v4
