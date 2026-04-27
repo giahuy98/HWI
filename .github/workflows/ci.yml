@@ -43,10 +43,23 @@ jobs:
               contrib/build_wine.sh
               find dist -type f -exec sha256sum {} \;
             "
+
+      - name: Stage release archive
+        run: |
+          mkdir -p release-dist
+          zipfile=$(find dist -maxdepth 1 -name 'hwi-*-windows-x86_64.zip' -print -quit)
+          test -n "$zipfile"
+          zipdir="${zipfile}.dir"
+          test -f "$zipdir/hwi.exe"
+          rm -f "$zipfile"
+          (cd "$zipdir" && zip "../$(basename "$zipfile")" hwi.exe)
+          cp "$zipfile" release-dist/
+          unzip -l release-dist/*.zip
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist-wine
-          path: dist/
+          path: release-dist/*
 
   linux-builder:
     name: Linux builder
@@ -72,10 +85,18 @@ jobs:
               find dist -type f -exec sha256sum {} \;
             "
 
+      - name: Stage release archive
+        run: |
+          mkdir -p release-dist
+          archive=$(find dist -maxdepth 1 -name 'hwi-*-linux-x86_64.tar.gz' -print -quit)
+          test -n "$archive"
+          cp "$archive" release-dist/
+          tar -tf "$archive"
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist-linux
-          path: dist/
+          path: release-dist/*
 
   mac-builder:
     name: Mac builder
@@ -95,10 +116,18 @@ jobs:
           ./contrib/build_bin.sh --without-gui
           ./dist/hwi-*-mac-x86_64.tar.gz.dir/hwi enumerate
 
+      - name: Stage release archive
+        run: |
+          mkdir -p release-dist
+          archive=$(find dist -maxdepth 1 -name 'hwi-*-mac-x86_64.tar.gz' -print -quit)
+          test -n "$archive"
+          cp "$archive" release-dist/
+          tar -tf "$archive"
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist-mac
-          path: dist/
+          path: release-dist/*
 
   release:
     name: Release
