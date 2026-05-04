@@ -28,6 +28,7 @@ from .common import (
 )
 from .errors import (
     handle_errors,
+    BadArgumentError,
     DEVICE_CONN_ERROR,
     HELP_TEXT,
     MISSING_ARGUMENTS,
@@ -59,7 +60,21 @@ def backup_device_handler(args: argparse.Namespace, client: HardwareWalletClient
     return backup_device(client, label=args.label, backup_passphrase=args.backup_passphrase)
 
 def displayaddress_handler(args: argparse.Namespace, client: HardwareWalletClient) -> Dict[str, str]:
-    return displayaddress(client, desc=args.desc, path=args.path, addr_type=args.addr_type)
+    policy = None
+    if args.policy_desc is not None:
+        if args.policy_name is None:
+            raise BadArgumentError("Missing --policy-name")
+        if args.key is None:
+            raise BadArgumentError("Missing --key")
+        if args.hmac is None:
+            raise BadArgumentError("Missing --hmac")
+        policy = BIP388Policy(
+            name=args.policy_name,
+            descriptor_template=args.policy_desc,
+            keys_info=args.key,
+            hmac=args.hmac
+        )
+    return displayaddress(client, desc=args.desc, path=args.path, bip388_policy=policy, addr_type=args.addr_type, change=args.change, index=args.index)
 
 def register_handler(args: argparse.Namespace, client: HardwareWalletClient) -> Dict[str, str]:
     policy = BIP388Policy(name=args.name, descriptor_template=args.desc, keys_info=args.key)
@@ -212,8 +227,15 @@ def get_parser() -> HWIArgumentParser:
     displayaddr_parser = subparsers.add_parser('displayaddress', help='Display an address')
     group = displayaddr_parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--desc', help='Output Descriptor. E.g. wpkh([00000000/84h/0h/0h]xpub.../0/0), where 00000000 must match --fingerprint and xpub can be obtained with getxpub. See doc/descriptors.md in Bitcoin Core')
+    group.add_argument('--policy-desc', help='Registered BIP388 policy descriptor template')
     group.add_argument('--path', help='The BIP 32 derivation path of the key embedded in the address, default follows BIP43 convention, e.g. ``m/84h/0h/0h/1/*``')
     displayaddr_parser.add_argument("--addr-type", help="The address type to display", type=AddressType.argparse, choices=list(AddressType), default=AddressType.WIT) # type: ignore
+    displayaddr_policy_group = displayaddr_parser.add_argument_group("BIP388 policy")
+    displayaddr_policy_group.add_argument('--policy-name', help='Registered policy name')
+    displayaddr_policy_group.add_argument('--key', help='Registered policy key information', action='append')
+    displayaddr_policy_group.add_argument('--hmac', help='Registered policy hmac, obtained via register command')
+    displayaddr_policy_group.add_argument('--change', help='Use 0 for receive addresses, 1 for change addresses', type=int, choices=[0, 1], default=0)
+    displayaddr_policy_group.add_argument('--index', help='Address index', type=int, default=0)
     displayaddr_parser.set_defaults(func=displayaddress_handler)
 
     register_parser = subparsers.add_parser('register', help='Register a BIP388 wallet policy')

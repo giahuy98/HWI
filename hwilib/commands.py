@@ -446,16 +446,22 @@ def displayaddress(
     client: HardwareWalletClient,
     path: Optional[str] = None,
     desc: Optional[str] = None,
-    addr_type: AddressType = AddressType.WIT
+    addr_type: AddressType = AddressType.WIT,
+    bip388_policy: Optional[BIP388Policy] = None,
+    change: int = 0,
+    index: int = 0,
 ) -> Dict[str, str]:
     """
     Display an address on the device for client.
     The address can be specified by the path with additional parameters, or by a descriptor.
 
     :param client: The client to interact with
-    :param path: The path of the address to display. Mutually exclusive with ``desc``
-    :param desc: The descriptor to display the address for. Mutually exclusive with ``path``
+    :param path: The path of the address to display. Mutually exclusive with ``desc`` and ``bip388_policy``
+    :param desc: The descriptor to display the address for. Mutually exclusive with ``path`` and ``bip388_policy``
     :param addr_type: The address type to return. Only works with ``path``
+    :param bip388_policy: The registered BIP388 wallet policy to display the address for. Mutually exclusive with ``path`` and ``desc``
+    :param change: 0 for receive addresses, 1 for change addresses. Only works with ``bip388_policy``
+    :param index: The address index. Only works with ``bip388_policy``
     :return: A dictionary containing the address displayed.
         Returned as ``{"address": <base58 or bech32 address string>}``.
     :raises: BadArgumentError: if an argument is malformed, missing, or conflicts.
@@ -497,7 +503,13 @@ def displayaddress(
             elif isinstance(descriptor, TRDescriptor):
                 addr_type = AddressType.TAP
             return {"address": client.display_singlesig_address(pubkey.get_full_derivation_path(0), addr_type)}
-    raise BadArgumentError("Missing both path and descriptor")
+    elif bip388_policy is not None:
+        if change not in [0, 1]:
+            raise BadArgumentError("change must be 0 or 1")
+        if index < 0 or index >= 2**31:
+            raise BadArgumentError("index must be between 0 and 2147483647")
+        return {"address": client.display_bip388_address(bip388_policy, change, index)}
+    raise BadArgumentError("Missing path, descriptor, or BIP388 policy")
 
 def register(
     client: HardwareWalletClient,

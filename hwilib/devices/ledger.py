@@ -530,6 +530,31 @@ class LedgerClient(HardwareWalletClient):
         return self.client.get_wallet_address(multisig_wallet, registered_hmac, change, address_index, True)
 
     @ledger_exception
+    def display_bip388_address(
+        self,
+        bip388_policy: BIP388Policy,
+        change: int,
+        address_index: int,
+    ) -> str:
+        if isinstance(self.client, LegacyClient):
+            raise BadArgumentError("Displaying BIP388 policy addresses is not supported by this version of the Bitcoin App")
+
+        if bip388_policy.hmac is None:
+            raise BadArgumentError("Missing --hmac")
+
+        wallet_hmac = bytes.fromhex(bip388_policy.hmac)
+        if len(wallet_hmac) != 32:
+            raise BadArgumentError("--hmac must be 32 bytes")
+
+        wallet_policy = WalletPolicy(
+            name=bip388_policy.name,
+            descriptor_template=bip388_policy.descriptor_template,
+            keys_info=bip388_policy.keys_info
+        )
+
+        return self.client.get_wallet_address(wallet_policy, wallet_hmac, change, address_index, True)
+
+    @ledger_exception
     def register_bip388_policy(
         self,
         bip388_policy: BIP388Policy,

@@ -143,6 +143,23 @@ class HardwareWalletClient(object):
         raise NotImplementedError("The HardwareWalletClient base class "
                                   "does not implement this method")
 
+    def display_bip388_address(
+        self,
+        bip388_policy: BIP388Policy,
+        change: int,
+        address_index: int,
+    ) -> str:
+        """
+        Display and return an address for a BIP388 wallet policy.
+
+        :param bip388_policy: The registered BIP388 wallet policy to display an address for
+        :param change: 0 for receive addresses, 1 for change addresses
+        :param address_index: The address index
+        :return: The retrieved address also being shown by the device
+        """
+        raise NotImplementedError("The HardwareWalletClient base class "
+                                  "does not implement this method")
+
     def register_bip388_policy(
         self,
         bip388_policy: BIP388Policy,
